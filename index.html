@@ -76,7 +76,7 @@ try{
 async function loginGoogle(){
  if(!auth)return;
  try{await signInWithPopup(auth,new GoogleAuthProvider());}
- catch(e){ui.error=e.code||e.message;status('Accesso non completato. Apri la WebApp in Safari normale e riprova.');}
+ catch(e){console.error('Firebase Google login:',e);ui.error=e.code||e.message;status(e.code==='auth/unauthorized-domain' ? 'Dominio OAuth rifiutato da Firebase: '+location.hostname+'. Verifica il dominio autorizzato e il progetto Firebase (tesla-charge-manager).' : 'Accesso Google non completato: '+(e.code||e.message));}
 }
 async function initializeSync(force){
  if(!ui.user||ui.busy||!navigator.onLine){status('Offline: dati locali disponibili. Riprova quando torna Internet.');return;}
