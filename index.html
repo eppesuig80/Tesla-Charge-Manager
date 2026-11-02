@@ -421,62 +421,93 @@ function showAuthDialog(register){
   }
  };
 }
-async function initializeSync(force){
- if(!ui.user||ui.busy||!navigator.onLine){status('Offline: dati locali disponibili. Riprova quando torna Internet.');return;}
- ui.busy=true;ui.ready=false;
- try{
-  const ref=doc(firestore,'users',ui.user.uid,'data','main');ui.docRef=ref;
-  const snapshot=await getDoc(ref);
-  const remote=snapshot.exists()?snapshot.data()?.payload:null;
-  const local=window.TCMBridge.get();
-  if(remote&&!valid(remote))throw new Error('Il documento remoto non è compatibile; nessun dato è stato sovrascritto.');
-  if(!remote){await setDoc(ref,{payload:local});}
-  else if(!equalData(remote,local)){
-   if(hasData(local)&&hasData(remote)){
-    if(!force && localStorage.getItem(syncMark(ui.user.uid))==='1' && !localStorage.getItem('tcm-pending-cloud')){
-     // Dispositivo già collegato: il cloud è la fonte autorevole all'apertura.
-     // Conserva comunque una copia locale di emergenza prima dell'aggiornamento.
-     localStorage.setItem('tcm-before-cloud-restore',JSON.stringify(local));
-     window.TCMBridge.set(remote);
-    } else if(force){
-     const chooseLocal=confirm('Dati differenti tra questo dispositivo e Firebase.\n\nOK: sostituisci i dati cloud con quelli locali.\nANNULLA: usa i dati cloud su questo dispositivo.\n\nEsporta prima il backup JSON.');
-     if(chooseLocal)await setDoc(ref,{payload:local});
-     else {localStorage.setItem('tcm-before-cloud-restore',JSON.stringify(local));window.TCMBridge.set(remote);}
-    }else{
-     // Nessun popup all'avvio: serve una decisione esplicita nell'interfaccia.
-     ui.conflict=true;ui.ready=false;
-     status('Dati locali e cloud differenti. Apri Impostazioni → Sincronizzazione e premi «Risolvi differenze». Nessun dato è stato sostituito.');
-     return;
-    }
-   }else if(hasData(local)&&!hasData(remote)){
-    if(localStorage.getItem(syncMark(ui.user.uid))==='1' && !force){
-     localStorage.setItem('tcm-before-cloud-restore',JSON.stringify(local));window.TCMBridge.set(remote);
-    }else await setDoc(ref,{payload:local});
-   }else window.TCMBridge.set(remote);
+// Le modifiche locali e quelle remote vengono riconciliate senza eliminare ricariche.
+function mergeCollections(local, remote){
+ const merged=structuredClone(remote);
+ for(const name of ['providers','rates','sessions']){
+  const a=Array.isArray(local[name])?local[name]:[];
+  const b=Array.isArray(remote[name])?remote[name]:[];
+  const byId=new Map(b.map(x=>[String(x.id),x]));
+  for(const x of a){
+   const key=String(x.id);
+   if(!byId.has(key)){byId.set(key,x);continue;}
+   const y=byId.get(key);
+   if(name==='sessions' && Date.parse(x.updatedAt||'')>Date.parse(y.updatedAt||''))byId.set(key,x);
   }
-  if(ui.unsubscribe)ui.unsubscribe();
-  ui.unsubscribe=onSnapshot(ref,snap=>{
-   if(!ui.ready||!snap.exists()||snap.metadata.hasPendingWrites)return;
-   const remote=snap.data()?.payload;if(!valid(remote))return;
-   const local=window.TCMBridge.get();
-   if(JSON.stringify(remote)===JSON.stringify(local))return;
-   if(ui.localDirty)return; // priorità alle modifiche locali non ancora caricate
-   window.TCMBridge.set(remote);status('Sincronizzato tra i dispositivi');
-  },e=>{ui.error=e.message;status('Errore di sincronizzazione');});
-  ui.ready=true;ui.localDirty=false;ui.conflict=false;localStorage.setItem(syncMark(ui.user.uid),'1');localStorage.removeItem('tcm-pending-cloud');status('Sincronizzato tra i dispositivi');
- }catch(e){ui.error=e.message;status('Sincronizzazione non riuscita; dati locali conservati');}
+  merged[name]=[...byId.values()];
+ }
+ // Non sovrascrivere le impostazioni generali già presenti nel cloud.
+ merged.updatedAt=new Date().toISOString();
+ return merged;
+}
+async function initializeSync(force=false){
+ if(!ui.user){status('Accedi a Firebase per sincronizzare');return;}
+ if(ui.busy)return;
+ if(!navigator.onLine){status('Offline: dati locali disponibili');return;}
+ ui.busy=true;
+ ui.ready=false;
+ ui.error='';
+ try{
+  const ref=doc(firestore,'users',ui.user.uid,'data','main');
+  ui.docRef=ref;
+  const snap=await getDoc(ref);
+  const remote=snap.exists()?snap.data()?.payload:null;
+  const local=window.TCMBridge.get();
+  if(remote&&!valid(remote))throw new Error('Dati cloud non validi. Nessun dato sostituito.');
+  let resolved;
+  if(!remote){resolved=local;await setDoc(ref,{payload:resolved});}
+  else if(equalData(local,remote)){resolved=remote;}
+  else {
+   // Crea sempre una copia di emergenza prima di riconciliare.
+   localStorage.setItem('tcm-before-cloud-restore',JSON.stringify(local));
+   // Su dispositivi già sincronizzati, Firebase è la fonte autorevole.
+   // Uniamo solo quando ci sono modifiche locali non ancora caricate
+   // o quando il dispositivo si collega per la prima volta.
+   const firstConnection=localStorage.getItem(syncMark(ui.user.uid))!=='1';
+   const pending=localStorage.getItem('tcm-pending-cloud')==='1';
+   resolved=(firstConnection||pending)?mergeCollections(local,remote):remote;
+   if(!equalData(resolved,remote))await setDoc(ref,{payload:resolved});
+  }
+  if(!equalData(window.TCMBridge.get(),resolved))window.TCMBridge.set(resolved);
+  if(ui.unsubscribe){ui.unsubscribe();ui.unsubscribe=null;}
+  ui.ready=true;ui.localDirty=false;ui.conflict=false;
+  localStorage.setItem(syncMark(ui.user.uid),'1');
+  localStorage.removeItem('tcm-pending-cloud');
+  ui.unsubscribe=onSnapshot(ref,snapshot=>{
+   if(!snapshot.exists()||snapshot.metadata.hasPendingWrites||!ui.ready)return;
+   const incoming=snapshot.data()?.payload;
+   if(!valid(incoming)||ui.localDirty)return;
+   const current=window.TCMBridge.get();
+   if(!equalData(current,incoming)){
+    localStorage.setItem('tcm-before-cloud-restore',JSON.stringify(current));
+    window.TCMBridge.set(incoming);
+   }
+   status('Cloud attivo · dati sincronizzati');
+  },error=>{ui.error=error.message;status('Errore Firebase');});
+  status('Cloud attivo · dati sincronizzati');
+ }catch(error){ui.error=error.message;status('Sincronizzazione non riuscita: dati locali conservati');}
  finally{ui.busy=false;}
 }
 window.addEventListener('tcm-local-save',()=>{
- if(!ui.user||!ui.ready)return;
- ui.localDirty=true;localStorage.setItem('tcm-pending-cloud','1');status('Modifiche da sincronizzare…');
+ if(!ui.user){status('Solo locale: accedi a Firebase per sincronizzare');return;}
+ if(!ui.ready){localStorage.setItem('tcm-pending-cloud','1');status('Cloud in attesa: dati locali conservati');return;}
+ ui.localDirty=true;
+ localStorage.setItem('tcm-pending-cloud','1');
+ status('Invio modifiche a Firebase…');
  clearTimeout(ui.syncTimer);
  ui.syncTimer=setTimeout(async()=>{
-  if(!ui.docRef||!navigator.onLine)return status('Offline: modifiche conservate sul dispositivo');
-  try{await setDoc(ui.docRef,{payload:window.TCMBridge.get()});ui.localDirty=false;localStorage.removeItem('tcm-pending-cloud');status('Sincronizzato tra i dispositivi');}
-  catch(e){ui.error=e.message;status('Salvataggio cloud fallito; dati locali conservati');}
+  if(!navigator.onLine||!ui.docRef){status('Offline: dati locali conservati');return;}
+  try{
+   await setDoc(ui.docRef,{payload:window.TCMBridge.get()});
+   ui.localDirty=false;
+   localStorage.removeItem('tcm-pending-cloud');
+   status('Cloud attivo · dati sincronizzati');
+  }catch(error){ui.error=error.message;status('Salvataggio cloud fallito: dati locali conservati');}
  },450);
 });
-window.addEventListener('online',()=>{if(ui.user)initializeSync(true)});
+window.addEventListener('online',()=>{if(ui.user)initializeSync(false)});
+window.addEventListener('visibilitychange',()=>{
+ if(!document.hidden&&ui.user&&!ui.localDirty&&!ui.busy)initializeSync(false);
+});
 refreshUI();
 </script></body></html>
