@@ -186,6 +186,42 @@ dialog::backdrop{background:#000b}
   input,select,textarea {min-height:48px;font-size:16px}
   dialog {width:calc(100dvw - 20px);max-height:calc(100dvh - 30px - env(safe-area-inset-bottom));overflow-y:auto}
 }
+
+/* iPhone Duo: correzione overflow WebKit nei campi data e orientamento */
+#charge-form, #charge-form .formgrid, #charge-form .field {min-width:0; max-width:100%; width:100%;}
+#charge-form input[type="date"], #charge-form input[type="month"] {
+  display:block; appearance:none; -webkit-appearance:none;
+  width:100%; min-width:0; max-width:100%; box-sizing:border-box;
+  font-size:16px; padding:12px 13px; overflow:hidden;
+}
+#charge-form input[type="date"]::-webkit-date-and-time-value {min-width:0; max-width:100%; text-align:center;}
+#charge-form input[type="date"]::-webkit-datetime-edit {min-width:0; max-width:100%; overflow:hidden;}
+#charge-form input[type="date"]::-webkit-calendar-picker-indicator {flex-shrink:0;}
+#charge-form select {max-width:100%; box-sizing:border-box;}
+#charge-form .field>.note {position:static!important; float:none!important; clear:both; display:block; width:100%; margin:9px 0 0; overflow-wrap:anywhere;}
+#charge-form .panel {min-width:0; max-width:100%;}
+@media (orientation:portrait) and (max-width:650px) {
+  #charge-form .formgrid {grid-template-columns:minmax(0,1fr)!important;}
+  #charge-form .formgrid>.field {grid-column:1/-1!important;}
+  #charge-form input[type=date] {width:100%!important;}
+}
+@media (orientation:landscape) and (max-height:620px) {
+  #charge-form .formgrid {grid-template-columns:minmax(0,1fr)!important; gap:15px;}
+  #charge-form .formgrid>.field {grid-column:1/-1!important;}
+  #charge-form .field>.note {margin-top:10px;}
+  .shell {padding-top:max(14px,env(safe-area-inset-top)); padding-bottom:calc(85px + env(safe-area-inset-bottom));}
+  .nav {padding-top:3px; padding-bottom:calc(3px + env(safe-area-inset-bottom));}
+  .nav button {min-height:40px;}
+}
+/* Modello Y illustrata nella Home; senza richieste a servizi esterni */
+.hero>.tesla-car-visual {flex:0 1 43%; width:43%; min-width:150px; max-width:340px; align-self:center;}
+.tesla-car-visual svg {width:100%; height:auto; display:block; filter:drop-shadow(0 14px 17px rgba(0,0,0,.45));}
+.hero>div:first-child {flex:1 1 53%; min-width:0;}
+@media(max-width:500px) {
+ .hero>.tesla-car-visual {flex:0 1 38%; width:38%; min-width:105px;}
+ .hero {gap:8px;}
+}
+@media(max-width:360px){.hero>.tesla-car-visual{min-width:90px}}
 </style></head><body><div class="shell"><header class="header"><div><div class="logo">TESLA <span class="red">CHARGE</span> MANAGER</div><div class="sub">Model Y Premium · gestione ricariche</div></div><span id="sync-indicator" class="pill">Locale</span></header><main id="app"></main></div><nav class="nav" id="nav"><button data-tab="home" class="active"><b>⌂</b>Home</button><button data-tab="new"><b>＋</b>Ricarica</button><button data-tab="history"><b>▤</b>Storico</button><button data-tab="stats"><b>▥</b>Statistiche</button><button data-tab="settings"><b>⚙</b>Impostazioni</button></nav><div id="toast" class="toast hidden" role="status"></div><dialog id="dialog"></dialog><script>
 'use strict';
 const KEY='tcm-data-v1', $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -205,7 +241,29 @@ function totals(list){const amounts=list.map(displayedCost);return {cost:amounts
 function nav(t){tab=t;editing=null;render();window.scrollTo(0,0)}
 $('#nav').addEventListener('click',e=>{let b=e.target.closest('button[data-tab]');if(b)nav(b.dataset.tab)});
 function render(){document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));let h={home:homePage,new:formPage,history:historyPage,stats:statsPage,settings:settingsPage}[tab];$('#app').innerHTML=h();bindPage()}
-function homePage(){let today=iso(),month=today.slice(0,7),ts=totals(db.sessions.filter(s=>String(s.date||'').slice(0,10)===today)),ms=totals(db.sessions.filter(s=>String(s.date||'').startsWith(month))),last=[...db.sessions].sort((a,b)=>(b.date+b.start).localeCompare(a.date+a.start))[0];return `<section class="stack"><div><h1>La tua Tesla</h1><p class="muted" style="margin:0">Tutte le tue ricariche, sotto controllo.</p></div><div class="panel hero"><div><div class="sub">MODEL Y PREMIUM</div><div class="metric">Stato batteria<br><span class="red">${db.teslaBattery?.batteria_percentuale!=null?esc(db.teslaBattery.batteria_percentuale)+"%":"Non disponibile"}</span></div><p class="note">${db.teslaBattery?.autonomia_km!=null?"Autonomia: "+esc(db.teslaBattery.autonomia_km)+" km. ":""}${db.teslaBattery?.lettoAlle?"Ultima lettura: "+esc(new Date(db.teslaBattery.lettoAlle).toLocaleString("it-IT")):"Dati Tesla non ancora acquisiti."}<br>La lettura non risveglia la vettura.</p><button class="btn small secondary" id="refresh-battery" type="button">Aggiorna batteria</button><div id="battery-message" class="note" role="status"></div></div><div class="battery" aria-label="Batteria: dato non disponibile"><span style="height:${db.teslaBattery?.batteria_percentuale!=null?Math.min(100,Math.max(0,Number(db.teslaBattery.batteria_percentuale))):0}%;background:${db.teslaBattery?.batteria_percentuale!=null?"linear-gradient(#f24b4e,#a4191c)":"transparent"}"></span></div></div><div class="grid"><div class="panel"><div class="sub">SPESA OGGI</div><div class="metric">${eur(ts.cost)}</div><div class="sub">${ts.count} sessioni${ts.missing?` · ${ts.missing} senza costo`:``}</div></div><div class="panel"><div class="sub">SPESA DEL MESE</div><div class="metric">${eur(ms.cost)}</div><div class="sub">${ms.count} sessioni</div></div><div class="panel"><div class="sub">kWh OGGI</div><div class="metric">${kwh(ts.energy)}</div></div><div class="panel"><div class="sub">kWh DEL MESE</div><div class="metric">${kwh(ms.energy)}</div></div></div>${ts.missing?`<div class="panel note">Oggi ${ts.missing} ricarica/ricariche senza costo calcolabile: imposta la tariffa o completa la sessione. Non sono comprese nella spesa odierna.</div>`:''}${ms.missing?`<div class="panel note">Attenzione: ${ms.missing} ricariche del mese senza costo calcolabile. I totali monetari escludono queste sessioni.</div>`:''}<button class="btn" data-go="new">＋ Registra una ricarica</button><div class="panel"><h2>Ultima ricarica</h2>${last?sessionItem(last):'<div class="empty">Non hai ancora registrato ricariche.</div>'}</div></section>`}
+function homePage(){let today=iso(),month=today.slice(0,7),ts=totals(db.sessions.filter(s=>String(s.date||'').slice(0,10)===today)),ms=totals(db.sessions.filter(s=>String(s.date||'').startsWith(month))),last=[...db.sessions].sort((a,b)=>(b.date+b.start).localeCompare(a.date+a.start))[0];return `<section class="stack"><div><h1>La tua Tesla</h1><p class="muted" style="margin:0">Tutte le tue ricariche, sotto controllo.</p></div><div class="panel hero"><div><div class="sub">MODEL Y PREMIUM</div><div class="metric">Stato batteria<br><span class="red">${db.teslaBattery?.batteria_percentuale!=null?esc(db.teslaBattery.batteria_percentuale)+"%":"Non disponibile"}</span></div><p class="note">${db.teslaBattery?.autonomia_km!=null?"Autonomia: "+esc(db.teslaBattery.autonomia_km)+" km. ":""}${db.teslaBattery?.lettoAlle?"Ultima lettura: "+esc(new Date(db.teslaBattery.lettoAlle).toLocaleString("it-IT")):"Dati Tesla non ancora acquisiti."}<br>La lettura non risveglia la vettura.</p><button class="btn small secondary" id="refresh-battery" type="button">Aggiorna batteria</button><div id="battery-message" class="note" role="status"></div></div><div class="tesla-car-visual" role="img" aria-label="Illustrazione Tesla Model Y Premium, vista laterale">
+<svg viewBox="0 0 480 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<defs>
+ <linearGradient id="yBody" x1="0" y1="0" x2=".2" y2="1"><stop stop-color="#f7f8fa"/><stop offset=".46" stop-color="#bfc4cd"/><stop offset="1" stop-color="#676e79"/></linearGradient>
+ <linearGradient id="yGlass" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#263340"/><stop offset="1" stop-color="#080d15"/></linearGradient>
+ <linearGradient id="yLight" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fafafa"/><stop offset="1" stop-color="#9cabbc"/></linearGradient>
+</defs>
+<ellipse cx="242" cy="207" rx="214" ry="20" fill="#000" opacity=".28"/>
+<path d="M24 158 Q29 144 47 139 L96 127 Q126 86 184 70 Q219 60 277 69 Q326 75 363 105 L405 126 Q442 135 457 151 L461 171 Q455 189 434 192 L44 191 Q19 188 20 170Z" fill="url(#yBody)" stroke="#e2e3e8" stroke-width="3"/>
+<path d="M117 127 Q149 86 192 80 Q237 72 280 80 Q310 84 350 118 L354 129Z" fill="url(#yGlass)" stroke="#8a929e" stroke-width="3"/>
+<path d="M219 78 L218 129 M324 104 L328 129" stroke="#7b828e" stroke-width="4"/>
+<path d="M45 158 Q152 150 452 156" fill="none" stroke="#f4f5f7" stroke-width="4" opacity=".8"/>
+<path d="M44 186 Q242 194 433 184" fill="none" stroke="#3a414e" stroke-width="6"/>
+<path d="M395 140 L447 149" fill="none" stroke="#c11b29" stroke-width="6" stroke-linecap="round"/>
+<path d="M34 149 L60 143" fill="none" stroke="#fffcea" stroke-width="6" stroke-linecap="round"/>
+<path d="M258 146 l27 0" stroke="#a3a9b2" stroke-width="4" stroke-linecap="round"/>
+<circle cx="118" cy="184" r="40" fill="#0b0c10" stroke="#686f7c" stroke-width="5"/>
+<circle cx="118" cy="184" r="28" fill="url(#yLight)" stroke="#151920" stroke-width="3"/>
+<circle cx="118" cy="184" r="10" fill="#3c424e"/>
+<circle cx="377" cy="184" r="40" fill="#0b0c10" stroke="#686f7c" stroke-width="5"/>
+<circle cx="377" cy="184" r="28" fill="url(#yLight)" stroke="#151920" stroke-width="3"/>
+<circle cx="377" cy="184" r="10" fill="#3c424e"/>
+</svg></div></div><div class="grid"><div class="panel"><div class="sub">SPESA OGGI</div><div class="metric">${eur(ts.cost)}</div><div class="sub">${ts.count} sessioni${ts.missing?` · ${ts.missing} senza costo`:``}</div></div><div class="panel"><div class="sub">SPESA DEL MESE</div><div class="metric">${eur(ms.cost)}</div><div class="sub">${ms.count} sessioni</div></div><div class="panel"><div class="sub">kWh OGGI</div><div class="metric">${kwh(ts.energy)}</div></div><div class="panel"><div class="sub">kWh DEL MESE</div><div class="metric">${kwh(ms.energy)}</div></div></div>${ts.missing?`<div class="panel note">Oggi ${ts.missing} ricarica/ricariche senza costo calcolabile: imposta la tariffa o completa la sessione. Non sono comprese nella spesa odierna.</div>`:''}${ms.missing?`<div class="panel note">Attenzione: ${ms.missing} ricariche del mese senza costo calcolabile. I totali monetari escludono queste sessioni.</div>`:''}<button class="btn" data-go="new">＋ Registra una ricarica</button><div class="panel"><h2>Ultima ricarica</h2>${last?sessionItem(last):'<div class="empty">Non hai ancora registrato ricariche.</div>'}</div></section>`}
 const PRESET_THIRD_PARTY = ['A2A E-moving','Atlante','Be Charge / Plenitude On The Road','Duferco Energia','Electra','Enel X Way','E.ON Drive','Ewiva','Fastned','Free To X','IONITY','Neogy','Nextcharge','Powerdot','Repower','Route220','Tesla Destination Charging','Virta','Wroom','Altra colonnina'];
 function chooseThirdPartyPreset(select){
  const choice=select.value;
