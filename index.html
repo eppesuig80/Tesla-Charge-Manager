@@ -404,20 +404,48 @@ function showAuthDialog(register){
  if(!auth){ui.error='Firebase non inizializzato';status('Accesso non disponibile');return;}
  const dlg=document.getElementById('dialog');
  if(dlg.open)return;
- dlg.innerHTML=`<h2>${register?'Crea account Firebase':'Accedi a Firebase'}</h2><form id="tcm-auth-form" class="stack"><p class="note">Usa lo stesso indirizzo email e la stessa password su iPhone, iPad e Mac. Non inserire le credenziali Tesla.</p><div><label>Email</label><input id="tcm-email" type="email" autocomplete="email" required></div><div><label>Password (almeno 6 caratteri)</label><input id="tcm-password" type="password" autocomplete="${register?'new-password':'current-password'}" minlength="6" required></div><p id="tcm-auth-error" class="note" role="alert"></p><div class="actions"><button class="btn" id="tcm-auth-submit" type="submit">${register?'Crea account':'Accedi'}</button><button class="btn secondary" type="button" id="tcm-auth-cancel">Annulla</button></div></form>`;
+ dlg.innerHTML=`<h2>${register?'Crea account Firebase':'Accedi a Firebase'}</h2><form id="tcm-auth-form" class="stack"><p class="note">Usa la password Firebase, non quella Tesla.</p><div><label for="tcm-email">Email</label><input id="tcm-email" type="email" autocomplete="email" required></div><div><label for="tcm-password">Password (almeno 6 caratteri)</label><input id="tcm-password" type="password" autocomplete="${register?'new-password':'current-password'}" minlength="6" required></div><p id="tcm-auth-error" class="note" role="alert" aria-live="assertive"></p><div class="actions"><button class="btn" id="tcm-auth-submit" type="submit">${register?'Crea account':'Accedi'}</button><button class="btn secondary" type="button" id="tcm-auth-cancel">Annulla</button></div></form>`;
  dlg.showModal();
+ const form=dlg.querySelector('#tcm-auth-form');
+ const err=dlg.querySelector('#tcm-auth-error');
+ const btn=dlg.querySelector('#tcm-auth-submit');
  dlg.querySelector('#tcm-auth-cancel').onclick=()=>dlg.close();
- dlg.querySelector('#tcm-auth-form').onsubmit=async e=>{
-  e.preventDefault();const email=dlg.querySelector('#tcm-email').value.trim(),password=dlg.querySelector('#tcm-password').value;
-  const btn=dlg.querySelector('#tcm-auth-submit');btn.disabled=true;
+ form.onsubmit=async e=>{
+  e.preventDefault();
+  if(btn.disabled)return;
+  const email=dlg.querySelector('#tcm-email').value.trim();
+  const password=dlg.querySelector('#tcm-password').value;
+  if(!email||!password){err.textContent='Inserisci email e password.';return;}
+  btn.disabled=true;
+  btn.textContent='Accesso in corso…';
+  err.textContent='Connessione a Firebase in corso…';
+  let timeout;
   try{
-   if(register)await createUserWithEmailAndPassword(auth,email,password);
-   else await signInWithEmailAndPassword(auth,email,password);
-   dlg.close();ui.error='';status('Accesso riuscito. Verifica i dati prima di sincronizzare.');
+   const authPromise=register?createUserWithEmailAndPassword(auth,email,password):signInWithEmailAndPassword(auth,email,password);
+   const limit=new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('La risposta di Firebase non arriva. Controlla la connessione e riprova.')),20000)});
+   await Promise.race([authPromise,limit]);
+   if(dlg.open)dlg.close();
+   ui.error='';
+   status('Accesso riuscito. Connessione al cloud in corso…');
   }catch(error){
-   const descriptions={'auth/email-already-in-use':'Account già presente: usa Accedi.','auth/invalid-email':'Indirizzo email non valido.','auth/invalid-credential':'Email o password errati.','auth/weak-password':'Scegli una password più lunga.','auth/operation-not-allowed':'Abilita Email/password in Firebase Authentication.','auth/too-many-requests':'Troppi tentativi: riprova più tardi.','auth/network-request-failed':'Connessione Internet non disponibile.','auth/unauthorized-domain':'Dominio non autorizzato da Firebase.'};
-   dlg.querySelector('#tcm-auth-error').textContent=descriptions[error.code]||('Errore: '+(error.code||error.message));
+   const descriptions={
+    'auth/email-already-in-use':'Account già presente: usa Accedi.',
+    'auth/invalid-email':'Indirizzo email non valido.',
+    'auth/invalid-credential':'Email o password Firebase errati.',
+    'auth/wrong-password':'Password Firebase errata.',
+    'auth/user-not-found':'Account Firebase non trovato.',
+    'auth/weak-password':'Scegli una password più lunga.',
+    'auth/operation-not-allowed':'Accesso Email/password non abilitato in Firebase.',
+    'auth/too-many-requests':'Troppi tentativi: riprova più tardi.',
+    'auth/network-request-failed':'Connessione a Firebase non riuscita.',
+    'auth/unauthorized-domain':'Dominio non autorizzato da Firebase.',
+    'auth/invalid-api-key':'Configurazione Firebase non valida.'
+   };
+   err.textContent=descriptions[error.code]||('Accesso non riuscito: '+(error.message||error.code||'errore sconosciuto'));
+  }finally{
+   clearTimeout(timeout);
    btn.disabled=false;
+   btn.textContent=register?'Crea account':'Accedi';
   }
  };
 }
