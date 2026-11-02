@@ -298,7 +298,7 @@ function historyPage(){
  return `<section class="stack"><div><h1>Storico</h1><p class="muted">${list.length} sessioni · dalla più recente</p></div><div class="panel"><label>Filtra per fornitore</label><select id="history-filter"><option value="">Tutti</option>${db.providers.map(p=>`<option value="${esc(p.id)}" ${historyFilter===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div><div class="history-totals" aria-label="Riepilogo delle ricariche visualizzate"><div class="history-total"><span class="history-total-label">Totale energia caricata</span><strong class="history-total-value">${kwh(energy)} <small>kWh</small></strong></div><div class="history-total"><span class="history-total-label">Spesa totale</span><strong class="history-total-value">${eur(cost)}</strong></div></div>${missing?`<p class="history-cost-note">${missing} ${missing===1?'ricarica senza costo non inclusa':'ricariche senza costo non incluse'} nella spesa.</p>`:''}<div class="panel">${list.length?list.map(s=>sessionItem(s,true)).join(''):'<div class="empty">Nessuna ricarica registrata.</div>'}${db.sessions.length?`<div class="actions" style="margin-top:20px"><button type="button" class="btn ghost" id="delete-all-sessions">Elimina tutte le ricariche</button></div>`:``}</div></section>`
 }
 function statsPage(){let list=db.sessions.filter(s=>s.date.startsWith(statMonth)),sum=totals(list),days={};list.forEach(s=>days[s.date]=(days[s.date]||0)+(s.cost||0));let vals=Object.entries(days).sort((a,b)=>a[0].localeCompare(b[0])),max=Math.max(1,...vals.map(x=>x[1]));let groups=['Casa','Tesla','Terze parti'].map(type=>({type,...totals(list.filter(s=>(provider(s.providerId)?.type)===type))}));return `<section class="stack"><h1>Statistiche</h1><div class="panel"><label>Seleziona il mese</label><input type="month" id="stat-month" value="${esc(statMonth)}"></div><div class="grid"><div class="panel"><div class="sub">SPESA TOTALE</div><div class="metric">${eur(sum.cost)}</div></div><div class="panel"><div class="sub">ENERGIA</div><div class="metric">${kwh(sum.energy)} <span class="sub">kWh</span></div></div></div>${sum.missing?`<div class="note">${sum.missing} sessioni prive di costo sono escluse dalla spesa.</div>`:''}<div class="panel"><h2>Spese giornaliere</h2>${vals.length?`<div class="chart">${vals.map(([day,value])=>`<div class="bar" title="${dt(day)}: ${eur(value)}" style="height:${Math.max(3,value/max*112)}px"><small>${day.slice(-2)}</small></div>`).join('')}</div>`:'<div class="empty">Nessun dato per questo mese.</div>'}</div><div class="panel"><h2>Per categoria</h2>${groups.map(g=>`<div class="item"><span>${g.type}</span><span><b>${eur(g.cost)}</b><div class="sub">${kwh(g.energy)} kWh · ${g.count} sessioni</div></span></div>`).join('')}</div></section>`}
-function settingsPage(){let today=iso();return `<section class="stack"><h1>Impostazioni</h1><div class="panel"><h2>Fornitori e tariffe</h2><p class="note">Le tariffe valgono dalla data scelta. Le sessioni già salvate conservano il proprio prezzo.</p>${db.providers.map(p=>{let r=getRate(p.id,today);return `<div class="item"><div><b>${esc(p.name)}</b><div class="sub">${esc(p.type)} · ${p.id==='tesla'?('Diurna: '+(getRate(p.id,today,'diurna')?eur(getRate(p.id,today,'diurna').price)+'/kWh':'non impostata')+' · Notturna: '+(getRate(p.id,today,'notturna')?eur(getRate(p.id,today,'notturna').price)+'/kWh':'non impostata')):(r?eur(r.price)+'/kWh':'Tariffa non impostata')}</div></div><div class="actions"><button class="btn small secondary" data-rate="${esc(p.id)}">Tariffa</button>${!['home','tesla','third'].includes(p.id)?`<button class="btn small ghost" data-rename="${esc(p.id)}">Modifica</button>`:''}</div></div>`}).join('')}<p class="note">Puoi creare tutti gli operatori che vuoi: Enel X, Free To X, Nextcharge, EVway e altri, con una tariffa indipendente per ciascuno.</p><div class="actions" style="margin-top:15px"><button class="btn secondary" id="add-provider">＋ Aggiungi colonnina di terze parti</button><button class="btn ghost" id="show-rates">Storico tariffe</button></div></div><div class="panel"><h2>Stima km aggiunti</h2><p class="note">Quanti km di autonomia stimare per ogni kWh caricato? Valore iniziale: 6 km/kWh. Modificalo secondo il consumo medio della tua Tesla.</p><label>Km per kWh</label><div class="actions"><input style="max-width:180px" id="km-per-kwh" type="number" min="0.1" max="20" step="0.1" value="${esc(db.kmPerKwh)}"><button class="btn secondary" id="save-km-factor">Salva</button></div></div><div class="panel"><h2>Importazione assistita da Tesla</h2><p class="note">Dalle Statistiche di ricarica Tesla, copia i dati giornalieri, una riga per giorno e categoria. Non è un collegamento automatico: i valori sono quelli visualizzati nell’app Tesla (eventualmente arrotondati).</p><label>Formato: AAAA-MM-GG; Categoria; kWh; Euro</label><textarea id="tesla-batch" rows="5" placeholder="2026-10-01; Casa; 11; 1&#10;2026-10-18; Tesla; 35; 14" style="font-size:16px;resize:vertical"></textarea><p class="note">Categorie: Casa, Tesla, Altro oppure il nome preciso di una colonnina già configurata. Se il giorno contiene più sessioni della stessa categoria, la riga rappresenta un riepilogo giornaliero. L’importazione non inventa sessioni individuali.</p><div class="actions"><button type="button" class="btn secondary" id="tesla-batch-import">Verifica e importa</button></div></div><div class="panel"><h2>Backup JSON</h2><p class="note">Esporta periodicamente una copia: i dati locali del browser possono essere cancellati dal sistema o dall'utente.</p><div class="actions"><button class="btn" id="export">Esporta backup</button><button class="btn secondary" id="import">Importa backup</button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div></div><div class="panel"><h2>Sincronizzazione</h2><p class="note">Sincronizzazione automatica tra Mac, PC e iPhone. Esegui l’accesso Firebase una sola volta per ogni browser: la sessione viene mantenuta e i dati si aggiornano automaticamente. Prima del primo accesso, esporta un backup JSON da ciascun dispositivo.</p><div id="firebase-status" class="note">Firebase: connessione in preparazione…</div><div class="actions" style="margin-top:12px"><button class="btn" type="button" id="firebase-login">Accedi con email</button><button class="btn secondary" type="button" id="firebase-register">Crea account</button><button class="btn secondary hidden" type="button" id="firebase-logout">Esci da Google</button></div></div><div class="panel" id="tesla-connection"><h2>Collegamento Tesla — predisposizione</h2><p class="note">Applicazione sviluppatore Tesla: PeppeChargeMonitor. La registrazione dell’applicazione è completata, ma l’accesso ai dati dell’auto non è ancora configurato.</p><span class="pill">Non collegata — nessuna richiesta API</span><div class="stack" style="margin-top:14px"><h3>Configurazione sicura</h3><p class="note">L’accesso ufficiale richiede OAuth, un componente server protetto per lo scambio del codice e un Client Secret. Il segreto non deve essere inserito in questa pagina né in GitHub Pages, Firebase Firestore o nel backup JSON.</p><p class="note">Indirizzo di ritorno registrato: <code>https://eppesuiq80.github.io/Tesla-Charge-Manager/</code>. Deve corrispondere esattamente a quello impostato nella console Tesla.</p><p class="note">Per continuare serviranno: Client ID pubblico, componente server con archiviazione sicura dei token, configurazione OAuth e verifica del limite di fatturazione (massimo desiderato 1–2 € al mese). Nessuna di queste operazioni è avviata automaticamente.</p><div class="actions"><a class="btn secondary" href="https://developer.tesla.com/" target="_blank" rel="noopener noreferrer">Apri Tesla Developer</a><a class="btn ghost" href="https://developer.tesla.com/docs/fleet-api/authentication/third-party-tokens" target="_blank" rel="noopener noreferrer">Documentazione OAuth</a></div><p class="note">La batteria nella Home resta correttamente “Non disponibile” finché la lettura reale non è attivata. Firebase e le ricariche non vengono modificati.</p></div></div><div class="panel"><h2>Notifiche</h2><p class="note">Gli avvisi interni segnalano modifiche e possibili errori. Le notifiche push a app chiusa non sono implementate in questa versione.</p></div></section>`}
+function settingsPage(){let today=iso();return `<section class="stack"><h1>Impostazioni</h1><div class="panel"><h2>Fornitori e tariffe</h2><p class="note">Le tariffe valgono dalla data scelta. Le sessioni già salvate conservano il proprio prezzo.</p>${db.providers.map(p=>{let r=getRate(p.id,today);return `<div class="item"><div><b>${esc(p.name)}</b><div class="sub">${esc(p.type)} · ${p.id==='tesla'?('Diurna: '+(getRate(p.id,today,'diurna')?eur(getRate(p.id,today,'diurna').price)+'/kWh':'non impostata')+' · Notturna: '+(getRate(p.id,today,'notturna')?eur(getRate(p.id,today,'notturna').price)+'/kWh':'non impostata')):(r?eur(r.price)+'/kWh':'Tariffa non impostata')}</div></div><div class="actions"><button class="btn small secondary" data-rate="${esc(p.id)}">Tariffa</button>${!['home','tesla','third'].includes(p.id)?`<button class="btn small ghost" data-rename="${esc(p.id)}">Modifica</button>`:''}</div></div>`}).join('')}<p class="note">Puoi creare tutti gli operatori che vuoi: Enel X, Free To X, Nextcharge, EVway e altri, con una tariffa indipendente per ciascuno.</p><div class="actions" style="margin-top:15px"><button class="btn secondary" id="add-provider">＋ Aggiungi colonnina di terze parti</button><button class="btn ghost" id="show-rates">Storico tariffe</button></div></div><div class="panel"><h2>Stima km aggiunti</h2><p class="note">Quanti km di autonomia stimare per ogni kWh caricato? Valore iniziale: 6 km/kWh. Modificalo secondo il consumo medio della tua Tesla.</p><label>Km per kWh</label><div class="actions"><input style="max-width:180px" id="km-per-kwh" type="number" min="0.1" max="20" step="0.1" value="${esc(db.kmPerKwh)}"><button class="btn secondary" id="save-km-factor">Salva</button></div></div><div class="panel"><h2>Importazione assistita da Tesla</h2><p class="note">Dalle Statistiche di ricarica Tesla, copia i dati giornalieri, una riga per giorno e categoria. Non è un collegamento automatico: i valori sono quelli visualizzati nell’app Tesla (eventualmente arrotondati).</p><label>Formato: AAAA-MM-GG; Categoria; kWh; Euro</label><textarea id="tesla-batch" rows="5" placeholder="2026-10-01; Casa; 11; 1&#10;2026-10-18; Tesla; 35; 14" style="font-size:16px;resize:vertical"></textarea><p class="note">Categorie: Casa, Tesla, Altro oppure il nome preciso di una colonnina già configurata. Se il giorno contiene più sessioni della stessa categoria, la riga rappresenta un riepilogo giornaliero. L’importazione non inventa sessioni individuali.</p><div class="actions"><button type="button" class="btn secondary" id="tesla-batch-import">Verifica e importa</button></div></div><div class="panel"><h2>Backup JSON</h2><p class="note">Esporta periodicamente una copia: i dati locali del browser possono essere cancellati dal sistema o dall'utente.</p><div class="actions"><button class="btn" id="export">Esporta backup</button><button class="btn secondary" id="import">Importa backup</button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div></div><div class="panel"><h2>Sincronizzazione Cloudflare</h2><p class="note">PC e iPhone si aggiornano automaticamente dopo l'attivazione. Usa la stessa chiave di sincronizzazione sui tuoi dispositivi; non è la password Tesla.</p><div id="firebase-status" class="note">Cloudflare: da attivare</div><div class="actions" style="margin-top:12px"><button class="btn" type="button" id="firebase-login">Collega questo dispositivo</button><button class="btn secondary" type="button" id="firebase-resync">Sincronizza ora</button><button class="btn ghost" type="button" id="firebase-logout">Scollega dispositivo</button></div></div><div class="panel" id="tesla-connection"><h2>Collegamento Tesla</h2><p class="note">Applicazione sviluppatore Tesla: PeppeChargeMonitor. La registrazione dell’applicazione è completata, ma l’accesso ai dati dell’auto non è ancora configurato.</p><span class="pill">Non collegata — nessuna richiesta API</span><div class="stack" style="margin-top:14px"><h3>Configurazione sicura</h3><p class="note">L’accesso ufficiale richiede OAuth, un componente server protetto per lo scambio del codice e un Client Secret. Il segreto non deve essere inserito in questa pagina né in GitHub Pages, Firebase Firestore o nel backup JSON.</p><p class="note">Indirizzo di ritorno registrato: <code>https://eppesuiq80.github.io/Tesla-Charge-Manager/</code>. Deve corrispondere esattamente a quello impostato nella console Tesla.</p><p class="note">Per continuare serviranno: Client ID pubblico, componente server con archiviazione sicura dei token, configurazione OAuth e verifica del limite di fatturazione (massimo desiderato 1–2 € al mese). Nessuna di queste operazioni è avviata automaticamente.</p><div class="actions"><a class="btn secondary" href="https://developer.tesla.com/" target="_blank" rel="noopener noreferrer">Apri Tesla Developer</a><a class="btn ghost" href="https://developer.tesla.com/docs/fleet-api/authentication/third-party-tokens" target="_blank" rel="noopener noreferrer">Documentazione OAuth</a></div><p class="note">La batteria nella Home resta correttamente “Non disponibile” finché la lettura reale non è attivata. Firebase e le ricariche non vengono modificati.</p></div></div><div class="panel"><h2>Notifiche</h2><p class="note">Gli avvisi interni segnalano modifiche e possibili errori. Le notifiche push a app chiusa non sono implementate in questa versione.</p></div></section>`}
 function bindPage(){document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>nav(b.dataset.go));document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{editing=db.sessions.find(s=>s.id===b.dataset.edit);tab='new';render();$('#charge-form').insertAdjacentHTML('beforeend',`<button type="button" class="btn ghost" id="delete-session">Elimina questa ricarica</button>`);$('#delete-session').onclick=()=>{if(confirm('Eliminare definitivamente questa ricarica?')){db.sessions=db.sessions.filter(s=>s.id!==editing.id);persist();toast('Ricarica eliminata');nav('history')}}});if(tab==='home'){const b=$('#refresh-battery');if(b)b.onclick=()=>window.TCMBattery?.update?.()}if(tab==='new')bindForm();if(tab==='history'){ $('#history-filter').onchange=e=>{historyFilter=e.target.value;render()};document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{const s=db.sessions.find(x=>x.id===b.dataset.delete);if(!s)return;if(!confirm('Eliminare definitivamente questa ricarica del '+dt(s.date)+'?'))return;db.sessions=db.sessions.filter(x=>x.id!==s.id);if(persist()){toast('Ricarica eliminata');render()}});const all=$('#delete-all-sessions');if(all)all.onclick=()=>{const count=db.sessions.length;if(!count)return;if(!confirm('ATTENZIONE: eliminare TUTTE le '+count+' ricariche registrate?\n\nQuesta operazione cancella anche le ricariche sincronizzate con Firebase, quando collegato. Esporta prima un backup JSON.'))return;db.sessions=[];if(persist()){toast('Tutte le ricariche eliminate');render()}};}if(tab==='stats')$('#stat-month').onchange=e=>{statMonth=e.target.value||iso().slice(0,7);render()};if(tab==='settings'){bindSettings();window.TCMFirebase?.refreshUI()}}
 function bindForm(){const form=$('#charge-form'),val=id=>num($('#f-'+id).value);const slot=()=>provider($('#f-provider').value)?.type==='Tesla'?$('#f-slot').value:'';const preview=()=>{const energy=val('energyAdded'),pid=$('#f-provider').value,isTesla=provider(pid)?.type==='Tesla';$('#tesla-slot-wrap').style.display=isTesla?'':'none';const r=getRate(pid,$('#f-date').value,slot());$('#preview').textContent=energy!=null&&r?eur(money(energy,r.price)):'Da completare';$('#preview-note').textContent=!r?'Imposta prima la tariffa di questo operatore e fascia in Impostazioni':energy==null?'Inserisci i kWh caricati':`Tariffa applicata: ${eur(r.price)}/kWh${isTesla?' · '+slot():''}`;$('#km-preview').textContent=energy==null?'—':new Intl.NumberFormat('it-IT',{maximumFractionDigits:1}).format(energy*db.kmPerKwh)+' km'};$('#f-provider').addEventListener('change',()=>{chooseThirdPartyPreset($('#f-provider'));preview()});['date','slot'].forEach(n=>$('#f-'+n).addEventListener('change',preview));form.querySelectorAll('input').forEach(e=>e.addEventListener('input',preview));preview();form.onsubmit=e=>{e.preventDefault();const date=$('#f-date').value,providerId=$('#f-provider').value,energy=val('energyAdded');if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!provider(providerId)||energy==null){toast('Inserisci data, operatore e kWh validi');return}const tariffSlot=slot(),r=getRate(providerId,date,tariffSlot),odometer=val('odometer'),cost=r?money(energy,r.price):null,now=new Date().toISOString();let obj={...(editing||{}),id:editing?.id||uuid(),date,providerId,providerName:provider(providerId).name,tariffSlot,energyAdded:energy,energyBilled:null,price:r?.price??null,override:null,cost,estimated:false,kmManual:null,kmAdded:Math.round(energy*db.kmPerKwh*10)/10,kmEstimated:true,odometer,start:'',end:'',notes:'',batteryStart:null,batteryEnd:null,rangeStart:null,rangeEnd:null,createdAt:editing?.createdAt||now,updatedAt:now};if(editing)db.sessions=db.sessions.map(s=>s.id===editing.id?obj:s);else db.sessions.push(obj);if(persist()){toast(editing?'Ricarica aggiornata':'Ricarica salvata');nav('history')}}}
 function showDialog(title,html,fn){let d=$('#dialog');d.innerHTML=`<h2>${esc(title)}</h2><form id="dialog-form" class="stack">${html}<div class="actions"><button class="btn" type="submit">Salva</button><button class="btn secondary" type="button" id="cancel-dialog">Annulla</button></div></form>`;d.showModal();const preset=d.querySelector('#provider-preset');if(preset){const update=()=>{const custom=d.querySelector('#provider-custom-wrap');custom.classList.toggle('hidden',preset.value!=='__custom__');custom.querySelector('input').required=preset.value==='__custom__'};preset.addEventListener('change',update);update()}$('#cancel-dialog').onclick=()=>d.close();$('#dialog-form').onsubmit=e=>{e.preventDefault();fn(d)}}
@@ -334,235 +334,129 @@ window.TCMBridge={get:()=>structuredClone(db), set:(value)=>{db=value;localStora
 // Versione HTML autonoma: nessun service worker esterno richiesto.
 render();
 
-</script><script type="module">
-import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js';
-import {getAuth,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,onAuthStateChanged,setPersistence,browserLocalPersistence} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-auth.js';
-import {getFirestore,doc,getDoc,setDoc,onSnapshot} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-firestore.js';
-const firebaseConfig={
- apiKey:'AIzaSyCHbkKSfMwEXBA5_W05hXq_585QLKLmIGQ',
- authDomain:'tesla-charge-manager.firebaseapp.com',
- projectId:'tesla-charge-manager',
- storageBucket:'tesla-charge-manager.firebasestorage.app',
- messagingSenderId:'686667512220',
- appId:'1:686667512220:web:de7370ca55f70ea4c1b059'
+</script><script>
+(function(){
+'use strict';
+const API='https://peppe-tesla-api.eppesuig80.workers.dev';
+const KEY='tcm-cloudflare-sync-key-v1';
+const SNAP='tcm-cloudflare-last-cloud-v1';
+let secret=localStorage.getItem(KEY)||'';
+let rev=0,busy=false,dirty=false,last=null,timer=null,connected=false;
+const el=id=>document.getElementById(id);
+const valid=d=>d&&d.version===1&&Array.isArray(d.sessions)&&Array.isArray(d.providers)&&Array.isArray(d.rates);
+const byId=(a,b)=>{
+ const map=new Map();
+ for(const o of [...(a||[]),...(b||[])]){
+   if(!o||!o.id)continue;
+   const old=map.get(o.id);
+   if(!old || Date.parse(o.updatedAt||'')>=Date.parse(old.updatedAt||''))map.set(o.id,o);
+ }
+ return [...map.values()];
 };
-
-// Batteria: una sola lettura su richiesta, senza chiavi segrete nel browser.
-window.TCMBattery = {
-  update: async () => {
-    const button=document.getElementById("refresh-battery");
-    const message=document.getElementById("battery-message");
-    if(!auth?.currentUser){if(message)message.textContent="Accedi a Firebase in Impostazioni per aggiornare.";return;}
-    if(button){button.disabled=true;button.textContent="Lettura in corso…";}
-    try{
-      const idToken=await auth.currentUser.getIdToken();
-      const result=await fetch("https://peppe-tesla-api.eppesuig80.workers.dev/api/battery",{
-        method:"POST",
-        headers:{"Authorization":"Bearer "+idToken}
-      });
-      const data=await result.json();
-      if(!result.ok)throw new Error(data.errore||("Errore HTTP "+result.status));
-      if(data.batteria_percentuale==null)throw new Error("Percentuale non disponibile nei dati Tesla");
-      window.TCMBridge.saveBattery(data);
-    }catch(error){
-      if(message)message.textContent="Aggiornamento non riuscito: "+error.message;
-    }finally{
-      if(button){button.disabled=false;button.textContent="Aggiorna batteria";}
-    }
-  }
-};
-const ui={user:null,ready:false,busy:false,error:'',message:'Accesso Firebase non effettuato',unsubscribe:null,docRef:null,syncTimer:null,ignore:false};
-const valid=d=>d&&d.version===1&&Array.isArray(d.sessions)&&Array.isArray(d.rates)&&Array.isArray(d.providers);
-const timestamp=d=>Date.parse(d?.updatedAt||'')||0;
-const hasData=d=>!!(d?.sessions?.length||d?.rates?.length||d?.providers?.some(p=>!['home','tesla','third'].includes(p.id)));
-const syncMark=uid=>'tcm-cloud-connected-'+uid;
-const equalData=(a,b)=>{if(!a||!b)return false;const clean=x=>{const c=structuredClone(x);delete c.updatedAt;return JSON.stringify(c)};return clean(a)===clean(b)};
-const status=msg=>{ui.message=msg;refreshUI()};
-function refreshUI(){
- const light=document.getElementById('sync-indicator');if(light){light.textContent=ui.user?(ui.ready?'Cloud attivo':'Cloud in attesa'):'Solo locale';}
- const el=document.getElementById('firebase-status');if(!el)return;
- el.textContent=ui.message+(ui.user?' · '+ui.user.email:'')+(ui.error?' · '+ui.error:'');
- const login=document.getElementById('firebase-login'),logout=document.getElementById('firebase-logout'),resync=document.getElementById('firebase-resync');
- if(login){login.classList.toggle('hidden',!!ui.user);login.onclick=()=>showAuthDialog(false);}
- const register=document.getElementById('firebase-register');if(register){register.classList.toggle('hidden',!!ui.user);register.onclick=()=>showAuthDialog(true);}
- if(logout){logout.classList.toggle('hidden',!ui.user);logout.onclick=()=>signOut(auth);}
- // La sincronizzazione avviene automaticamente all'accesso e a ogni modifica.
+const updated=x=>Date.parse(x?.updatedAt||'')||0;
+function merge(a,b){
+ if(!valid(a))return b;
+ if(!valid(b))return a;
+ const newer=updated(a)>=updated(b)?a:b;
+ const deleted=new Set([...(a.deletedSessions||[]),...(b.deletedSessions||[])]);
+ const sessions=byId(a.sessions,b.sessions).filter(x=>!deleted.has(x.id));
+ return {...newer,providers:byId(a.providers,b.providers),rates:byId(a.rates,b.rates),sessions,deletedSessions:[...deleted],teslaBattery:updated(a.teslaBattery)>=updated(b.teslaBattery)?a.teslaBattery:b.teslaBattery};
 }
-window.TCMFirebase={refreshUI};
-let auth,firestore;
-try{
- const app=initializeApp(firebaseConfig);auth=getAuth(app);firestore=getFirestore(app);
- await setPersistence(auth,browserLocalPersistence);
- onAuthStateChanged(auth,async user=>{
-  if(ui.unsubscribe){ui.unsubscribe();ui.unsubscribe=null;}
-  clearTimeout(ui.syncTimer);ui.user=user;ui.ready=false;ui.docRef=null;ui.error='';ui.conflict=false;
-  if(!user){status('Accesso iniziale richiesto su questo dispositivo. Dopo sarà automatico.');return;}
-  status('Accesso ripristinato automaticamente. Connessione al cloud…');await initializeSync(false);
- });
-}catch(e){ui.error=e.message;status('Firebase non disponibile: dati locali al sicuro');}
-const AUTH_THROTTLE_KEY = 'tcm-firebase-auth-cooldown-until';
-let authInFlight = false;
-function authCooldownRemaining(){
- try { return Math.max(0, Number(sessionStorage.getItem(AUTH_THROTTLE_KEY)||0) - Date.now()); }
- catch { return 0; }
-}
-function setAuthCooldown(milliseconds){
- try { sessionStorage.setItem(AUTH_THROTTLE_KEY,String(Date.now()+milliseconds)); } catch {}
-}
-function showAuthDialog(register){
- if(!auth){ui.error='Firebase non inizializzato';status('Accesso non disponibile');return;}
- const dlg=document.getElementById('dialog');
- if(dlg.open)return;
- dlg.innerHTML=`<h2>${register?'Crea account Firebase':'Accedi a Firebase'}</h2><form id="tcm-auth-form" class="stack"><p class="note">Usa la password dell’account Firebase, non quella Tesla. Un solo tentativo alla volta.</p><div><label for="tcm-email">Email</label><input id="tcm-email" type="email" autocomplete="email" required></div><div><label for="tcm-password">Password</label><input id="tcm-password" type="password" autocomplete="${register?'new-password':'current-password'}" minlength="6" required></div><p id="tcm-auth-error" class="note" role="alert" aria-live="assertive"></p><div class="actions"><button class="btn" id="tcm-auth-submit" type="submit">${register?'Crea account':'Accedi'}</button><button class="btn secondary" type="button" id="tcm-auth-cancel">Annulla</button></div></form>`;
- dlg.showModal();
- const form=dlg.querySelector('#tcm-auth-form');
- const err=dlg.querySelector('#tcm-auth-error');
- const btn=dlg.querySelector('#tcm-auth-submit');
- dlg.querySelector('#tcm-auth-cancel').onclick=()=>dlg.close();
- const remaining=authCooldownRemaining();
- if(remaining){err.textContent='Firebase ha bloccato temporaneamente i tentativi. Non riprovare ora.';btn.disabled=true;}
- form.onsubmit=async e=>{
-  e.preventDefault();
-  if(authInFlight||btn.disabled)return;
-  if(authCooldownRemaining()){
-   err.textContent='Accesso temporaneamente limitato da Firebase. Evita nuovi tentativi.';
-   btn.disabled=true;
-   return;
-  }
-  const email=dlg.querySelector('#tcm-email').value.trim();
-  const password=dlg.querySelector('#tcm-password').value;
-  if(!email||!password){err.textContent='Inserisci email e password.';return;}
-  if(!navigator.onLine){err.textContent='Connessione Internet assente.';return;}
-  authInFlight=true;
-  btn.disabled=true;
-  btn.textContent='Accesso in corso…';
-  err.textContent='Attendi la risposta Firebase. Non premere nuovamente.';
-  const slowNotice=setTimeout(()=>{
-   if(dlg.open&&authInFlight)err.textContent='Firebase non ha ancora risposto. La richiesta resta in corso; non inviarne altre.';
-  },20000);
-  try{
-   // Non usare Promise.race con timeout: la richiesta originale rimarrebbe attiva
-   // e altri clic potrebbero generare tentativi sovrapposti.
-   if(register)await createUserWithEmailAndPassword(auth,email,password);
-   else await signInWithEmailAndPassword(auth,email,password);
-   if(dlg.open)dlg.close();
-   ui.error='';
-   status('Accesso riuscito. Connessione al cloud in corso…');
-  }catch(error){
-   const descriptions={
-    'auth/email-already-in-use':'Account già presente: usa Accedi.',
-    'auth/invalid-email':'Indirizzo email non valido.',
-    'auth/invalid-credential':'Email o password Firebase non riconosciuti.',
-    'auth/wrong-password':'Password Firebase non riconosciuta.',
-    'auth/user-not-found':'Account Firebase non trovato.',
-    'auth/weak-password':'Scegli una password più lunga.',
-    'auth/operation-not-allowed':'Email/password non abilitato in Firebase.',
-    'auth/too-many-requests':'Firebase ha temporaneamente bloccato gli accessi. Non riprovare ora.',
-    'auth/network-request-failed':'Connessione Firebase non riuscita.',
-    'auth/unauthorized-domain':'Dominio non autorizzato da Firebase.',
-    'auth/invalid-api-key':'Configurazione Firebase non valida.'
-   };
-   err.textContent=descriptions[error.code]||('Accesso non riuscito: '+(error.message||error.code||'errore sconosciuto'));
-   if(error.code==='auth/too-many-requests'){
-    // Blocco locale di precauzione; Firebase decide autonomamente la durata effettiva.
-    setAuthCooldown(30*60*1000);
-    btn.disabled=true;
-   }
-  }finally{
-   clearTimeout(slowNotice);
-   authInFlight=false;
-   if(!authCooldownRemaining())btn.disabled=false;
-   btn.textContent=register?'Crea account':'Accedi';
-  }
+function status(message){
+ const connectedLabel=el('sync-indicator');
+ if(connectedLabel)connectedLabel.textContent=connected?'Cloud attivo':(secret?'Cloud da verificare':'Solo locale');
+ const pane=el('firebase-status');if(pane)pane.textContent=message;
+ const login=el('firebase-login');if(login)login.onclick=configure;
+ const sync=el('firebase-resync');if(sync)sync.onclick=()=>run(true);
+ const logout=el('firebase-logout');if(logout)logout.onclick=()=>{
+   if(!confirm('Scollegare questo dispositivo? I dati locali rimangono.'))return;
+   localStorage.removeItem(KEY);secret='';connected=false;status('Dispositivo scollegato');
  };
 }
-// Le modifiche locali e quelle remote vengono riconciliate senza eliminare ricariche.
-function mergeCollections(local, remote){
- const merged=structuredClone(remote);
- for(const name of ['providers','rates','sessions']){
-  const a=Array.isArray(local[name])?local[name]:[];
-  const b=Array.isArray(remote[name])?remote[name]:[];
-  const byId=new Map(b.map(x=>[String(x.id),x]));
-  for(const x of a){
-   const key=String(x.id);
-   if(!byId.has(key)){byId.set(key,x);continue;}
-   const y=byId.get(key);
-   if(name==='sessions' && Date.parse(x.updatedAt||'')>Date.parse(y.updatedAt||''))byId.set(key,x);
-  }
-  merged[name]=[...byId.values()];
- }
- // Non sovrascrivere le impostazioni generali già presenti nel cloud.
- merged.updatedAt=new Date().toISOString();
- return merged;
+async function call(method,path,body){
+ const res=await fetch(API+path,{method,headers:{'X-Sync-Key':secret,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,cache:'no-store'});
+ const data=await res.json().catch(()=>({errore:'Risposta server non valida'}));
+ if(!res.ok){let error=new Error(data.errore||('HTTP '+res.status));error.status=res.status;error.result=data;throw error;}
+ return data;
 }
-async function initializeSync(force=false){
- if(!ui.user){status('Accedi a Firebase per sincronizzare');return;}
- if(ui.busy)return;
- if(!navigator.onLine){status('Offline: dati locali disponibili');return;}
- ui.busy=true;
- ui.ready=false;
- ui.error='';
+function configure(){
+ const key=prompt('Inserisci la chiave SYNC_KEY configurata su Cloudflare:','');
+ if(key===null)return;
+ if(key.trim().length<20){status('La chiave di sincronizzazione deve contenere almeno 20 caratteri.');return;}
+ secret=key.trim();localStorage.setItem(KEY,secret);connected=false;run(true);
+}
+function tombstone(local,previous){
+ if(!valid(previous))return local;
+ const present=new Set(local.sessions.map(s=>s.id));
+ const deleted=new Set(local.deletedSessions||[]);
+ for(const item of previous.sessions||[]){if(!present.has(item.id))deleted.add(item.id);}
+ return {...local,deletedSessions:[...deleted]};
+}
+function saveSafe(data){
+ // Preserves original data in the same localStorage schema before rendering.
+ window.TCMBridge.set(data);
+}
+async function run(force=false){
+ if(!secret||busy||!navigator.onLine)return;
+ busy=true;
  try{
-  const ref=doc(firestore,'users',ui.user.uid,'data','main');
-  ui.docRef=ref;
-  const snap=await getDoc(ref);
-  const remote=snap.exists()?snap.data()?.payload:null;
-  const local=window.TCMBridge.get();
-  if(remote&&!valid(remote))throw new Error('Dati cloud non validi. Nessun dato sostituito.');
-  let resolved;
-  if(!remote){resolved=local;await setDoc(ref,{payload:resolved});}
-  else if(equalData(local,remote)){resolved=remote;}
-  else {
-   // Crea sempre una copia di emergenza prima di riconciliare.
-   localStorage.setItem('tcm-before-cloud-restore',JSON.stringify(local));
-   // Su dispositivi già sincronizzati, Firebase è la fonte autorevole.
-   // Uniamo solo quando ci sono modifiche locali non ancora caricate
-   // o quando il dispositivo si collega per la prima volta.
-   const firstConnection=localStorage.getItem(syncMark(ui.user.uid))!=='1';
-   const pending=localStorage.getItem('tcm-pending-cloud')==='1';
-   resolved=(firstConnection||pending)?mergeCollections(local,remote):remote;
-   if(!equalData(resolved,remote))await setDoc(ref,{payload:resolved});
-  }
-  if(!equalData(window.TCMBridge.get(),resolved))window.TCMBridge.set(resolved);
-  if(ui.unsubscribe){ui.unsubscribe();ui.unsubscribe=null;}
-  ui.ready=true;ui.localDirty=false;ui.conflict=false;
-  localStorage.setItem(syncMark(ui.user.uid),'1');
-  localStorage.removeItem('tcm-pending-cloud');
-  ui.unsubscribe=onSnapshot(ref,snapshot=>{
-   if(!snapshot.exists()||snapshot.metadata.hasPendingWrites||!ui.ready)return;
-   const incoming=snapshot.data()?.payload;
-   if(!valid(incoming)||ui.localDirty)return;
-   const current=window.TCMBridge.get();
-   if(!equalData(current,incoming)){
-    localStorage.setItem('tcm-before-cloud-restore',JSON.stringify(current));
-    window.TCMBridge.set(incoming);
+   const remote=await call('GET','/sync');
+   connected=true;rev=remote.version||0;
+   let local=window.TCMBridge.get();
+   if(!valid(local))throw Error('Dati locali non validi');
+   if(remote.data&&valid(remote.data)){
+     const previous=last||JSON.parse(localStorage.getItem(SNAP)||'null');
+     local=tombstone(local,previous);
+     const combined=merge(local,remote.data);
+     const same=JSON.stringify(combined)===JSON.stringify(remote.data);
+     if(JSON.stringify(combined)!==JSON.stringify(window.TCMBridge.get()))saveSafe(combined);
+     if(!same)await push(combined);
+     else {last=remote.data;localStorage.setItem(SNAP,JSON.stringify(remote.data));}
+   }else{
+     await push(local);
    }
-   status('Cloud attivo · dati sincronizzati');
-  },error=>{ui.error=error.message;status('Errore Firebase');});
-  status('Cloud attivo · dati sincronizzati');
- }catch(error){ui.error=error.message;status('Sincronizzazione non riuscita: dati locali conservati');}
- finally{ui.busy=false;}
+   dirty=false;
+   status('Cloud attivo · sincronizzazione automatica');
+ }catch(e){
+   connected=false;
+   status(e.status===401?'Chiave Cloudflare errata. Ricollega il dispositivo.':'Sincronizzazione non riuscita: '+e.message+' · dati locali conservati');
+ }finally{busy=false;}
 }
+async function push(payload){
+ for(let tries=0;tries<4;tries++){
+   try{
+     const result=await call('POST','/sync',{version:rev,data:payload});
+     rev=result.version;last=payload;localStorage.setItem(SNAP,JSON.stringify(payload));return;
+   }catch(e){
+     if(e.status!==409||!valid(e.result?.data))throw e;
+     rev=e.result.version;
+     payload=merge(payload,e.result.data);
+     if(JSON.stringify(payload)!==JSON.stringify(window.TCMBridge.get()))saveSafe(payload);
+   }
+ }
+ throw Error('Conflitto di sincronizzazione: riprova');
+}
+window.TCMBattery={update:async()=>{
+ const button=el('refresh-battery'),msg=el('battery-message');
+ if(!secret){if(msg)msg.textContent='Collega questo dispositivo in Impostazioni.';return;}
+ if(button){button.disabled=true;button.textContent='Lettura in corso…';}
+ try{
+   const data=await call('POST','/api/battery');
+   if(data.batteria_percentuale==null)throw Error('Batteria non disponibile');
+   window.TCMBridge.saveBattery(data);
+ }catch(e){if(msg)msg.textContent='Errore: '+e.message;}
+ finally{if(button){button.disabled=false;button.textContent='Aggiorna batteria';}}
+}};
+window.TCMFirebase={refreshUI:()=>status(connected?'Cloud attivo · sincronizzazione automatica':secret?'Cloudflare: connessione in attesa':'Cloudflare: collega questo dispositivo')};
 window.addEventListener('tcm-local-save',()=>{
- if(!ui.user){status('Solo locale: accedi a Firebase per sincronizzare');return;}
- if(!ui.ready){localStorage.setItem('tcm-pending-cloud','1');status('Cloud in attesa: dati locali conservati');return;}
- ui.localDirty=true;
- localStorage.setItem('tcm-pending-cloud','1');
- status('Invio modifiche a Firebase…');
- clearTimeout(ui.syncTimer);
- ui.syncTimer=setTimeout(async()=>{
-  if(!navigator.onLine||!ui.docRef){status('Offline: dati locali conservati');return;}
-  try{
-   await setDoc(ui.docRef,{payload:window.TCMBridge.get()});
-   ui.localDirty=false;
-   localStorage.removeItem('tcm-pending-cloud');
-   status('Cloud attivo · dati sincronizzati');
-  }catch(error){ui.error=error.message;status('Salvataggio cloud fallito: dati locali conservati');}
- },450);
+ if(!secret)return;
+ dirty=true;clearTimeout(timer);
+ timer=setTimeout(()=>run(false),850);
 });
-window.addEventListener('online',()=>{if(ui.user)initializeSync(false)});
-window.addEventListener('visibilitychange',()=>{
- if(!document.hidden&&ui.user&&!ui.localDirty&&!ui.busy)initializeSync(false);
-});
-refreshUI();
+window.addEventListener('online',()=>run());
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)run();});
+setInterval(()=>{if(!document.hidden&&secret)run()},25000);
+status(secret?'Cloudflare: connessione in corso…':'Cloudflare: collega questo dispositivo in Impostazioni');
+if(secret)run();
+})();
 </script></body></html>
