@@ -400,30 +400,51 @@ try{
   status('Connessione al database…');await initializeSync(false);
  });
 }catch(e){ui.error=e.message;status('Firebase non disponibile: dati locali al sicuro');}
+const AUTH_THROTTLE_KEY = 'tcm-firebase-auth-cooldown-until';
+let authInFlight = false;
+function authCooldownRemaining(){
+ try { return Math.max(0, Number(sessionStorage.getItem(AUTH_THROTTLE_KEY)||0) - Date.now()); }
+ catch { return 0; }
+}
+function setAuthCooldown(milliseconds){
+ try { sessionStorage.setItem(AUTH_THROTTLE_KEY,String(Date.now()+milliseconds)); } catch {}
+}
 function showAuthDialog(register){
  if(!auth){ui.error='Firebase non inizializzato';status('Accesso non disponibile');return;}
  const dlg=document.getElementById('dialog');
  if(dlg.open)return;
- dlg.innerHTML=`<h2>${register?'Crea account Firebase':'Accedi a Firebase'}</h2><form id="tcm-auth-form" class="stack"><p class="note">Usa la password Firebase, non quella Tesla.</p><div><label for="tcm-email">Email</label><input id="tcm-email" type="email" autocomplete="email" required></div><div><label for="tcm-password">Password (almeno 6 caratteri)</label><input id="tcm-password" type="password" autocomplete="${register?'new-password':'current-password'}" minlength="6" required></div><p id="tcm-auth-error" class="note" role="alert" aria-live="assertive"></p><div class="actions"><button class="btn" id="tcm-auth-submit" type="submit">${register?'Crea account':'Accedi'}</button><button class="btn secondary" type="button" id="tcm-auth-cancel">Annulla</button></div></form>`;
+ dlg.innerHTML=`<h2>${register?'Crea account Firebase':'Accedi a Firebase'}</h2><form id="tcm-auth-form" class="stack"><p class="note">Usa la password dell’account Firebase, non quella Tesla. Un solo tentativo alla volta.</p><div><label for="tcm-email">Email</label><input id="tcm-email" type="email" autocomplete="email" required></div><div><label for="tcm-password">Password</label><input id="tcm-password" type="password" autocomplete="${register?'new-password':'current-password'}" minlength="6" required></div><p id="tcm-auth-error" class="note" role="alert" aria-live="assertive"></p><div class="actions"><button class="btn" id="tcm-auth-submit" type="submit">${register?'Crea account':'Accedi'}</button><button class="btn secondary" type="button" id="tcm-auth-cancel">Annulla</button></div></form>`;
  dlg.showModal();
  const form=dlg.querySelector('#tcm-auth-form');
  const err=dlg.querySelector('#tcm-auth-error');
  const btn=dlg.querySelector('#tcm-auth-submit');
  dlg.querySelector('#tcm-auth-cancel').onclick=()=>dlg.close();
+ const remaining=authCooldownRemaining();
+ if(remaining){err.textContent='Firebase ha bloccato temporaneamente i tentativi. Non riprovare ora.';btn.disabled=true;}
  form.onsubmit=async e=>{
   e.preventDefault();
-  if(btn.disabled)return;
+  if(authInFlight||btn.disabled)return;
+  if(authCooldownRemaining()){
+   err.textContent='Accesso temporaneamente limitato da Firebase. Evita nuovi tentativi.';
+   btn.disabled=true;
+   return;
+  }
   const email=dlg.querySelector('#tcm-email').value.trim();
   const password=dlg.querySelector('#tcm-password').value;
   if(!email||!password){err.textContent='Inserisci email e password.';return;}
+  if(!navigator.onLine){err.textContent='Connessione Internet assente.';return;}
+  authInFlight=true;
   btn.disabled=true;
   btn.textContent='Accesso in corso…';
-  err.textContent='Connessione a Firebase in corso…';
-  let timeout;
+  err.textContent='Attendi la risposta Firebase. Non premere nuovamente.';
+  const slowNotice=setTimeout(()=>{
+   if(dlg.open&&authInFlight)err.textContent='Firebase non ha ancora risposto. La richiesta resta in corso; non inviarne altre.';
+  },20000);
   try{
-   const authPromise=register?createUserWithEmailAndPassword(auth,email,password):signInWithEmailAndPassword(auth,email,password);
-   const limit=new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('La risposta di Firebase non arriva. Controlla la connessione e riprova.')),20000)});
-   await Promise.race([authPromise,limit]);
+   // Non usare Promise.race con timeout: la richiesta originale rimarrebbe attiva
+   // e altri clic potrebbero generare tentativi sovrapposti.
+   if(register)await createUserWithEmailAndPassword(auth,email,password);
+   else await signInWithEmailAndPassword(auth,email,password);
    if(dlg.open)dlg.close();
    ui.error='';
    status('Accesso riuscito. Connessione al cloud in corso…');
@@ -431,20 +452,26 @@ function showAuthDialog(register){
    const descriptions={
     'auth/email-already-in-use':'Account già presente: usa Accedi.',
     'auth/invalid-email':'Indirizzo email non valido.',
-    'auth/invalid-credential':'Email o password Firebase errati.',
-    'auth/wrong-password':'Password Firebase errata.',
+    'auth/invalid-credential':'Email o password Firebase non riconosciuti.',
+    'auth/wrong-password':'Password Firebase non riconosciuta.',
     'auth/user-not-found':'Account Firebase non trovato.',
     'auth/weak-password':'Scegli una password più lunga.',
-    'auth/operation-not-allowed':'Accesso Email/password non abilitato in Firebase.',
-    'auth/too-many-requests':'Troppi tentativi: riprova più tardi.',
-    'auth/network-request-failed':'Connessione a Firebase non riuscita.',
+    'auth/operation-not-allowed':'Email/password non abilitato in Firebase.',
+    'auth/too-many-requests':'Firebase ha temporaneamente bloccato gli accessi. Non riprovare ora.',
+    'auth/network-request-failed':'Connessione Firebase non riuscita.',
     'auth/unauthorized-domain':'Dominio non autorizzato da Firebase.',
     'auth/invalid-api-key':'Configurazione Firebase non valida.'
    };
    err.textContent=descriptions[error.code]||('Accesso non riuscito: '+(error.message||error.code||'errore sconosciuto'));
+   if(error.code==='auth/too-many-requests'){
+    // Blocco locale di precauzione; Firebase decide autonomamente la durata effettiva.
+    setAuthCooldown(30*60*1000);
+    btn.disabled=true;
+   }
   }finally{
-   clearTimeout(timeout);
-   btn.disabled=false;
+   clearTimeout(slowNotice);
+   authInFlight=false;
+   if(!authCooldownRemaining())btn.disabled=false;
    btn.textContent=register?'Crea account':'Accedi';
   }
  };
